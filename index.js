@@ -135,3 +135,111 @@ async function iniciarBot() {
             if (comando === 'delete') {
                 const q = msg.message.extendedTextMessage?.contextInfo;
                 if (q) await sock.sendMessage(chat, { delete: { remoteJid: chat, fromMe: false, id: q.stanzaId, participant: q.participant } });
+            }
+            if (comando === 'ban' && mencionado) { await sock.groupParticipantsUpdate(chat, [mencionado], 'remove'); await sock.sendMessage(chat, { text: '👢 Expulsado.' }); }
+            if (comando === 'promote' && mencionado) { await sock.groupParticipantsUpdate(chat, [mencionado], 'promote'); await sock.sendMessage(chat, { text: '👑 Ahora es admin.' }); }
+            if (comando === 'demote' && mencionado) { await sock.groupParticipantsUpdate(chat, [mencionado], 'demote'); await sock.sendMessage(chat, { text: '📉 Admin removido.' }); }
+            if (comando === 'warn' && mencionado) {
+                g.warns[mencionado] = (g.warns[mencionado] || 0) + 1;
+                if (g.warns[mencionado] >= 3) { g.warns[mencionado] = 0; await sock.groupParticipantsUpdate(chat, [mencionado], 'remove'); await sock.sendMessage(chat, { text: '⛔ Expulsado por 3 warns.' }); }
+                else await sock.sendMessage(chat, { text: `⚠️ Warn ${g.warns[mencionado]}/3 para @${mencionado.split('@').at(0)}`, mentions: [mencionado] });
+            }
+            if (comando === 'unwarn' && mencionado) { g.warns[mencionado] = 0; await sock.sendMessage(chat, { text: '✅ Warns limpios.' }); }
+        }
+        if (comando === 'ping') await sock.sendMessage(chat, { text: '🏓 *¡Pong!* PrimeBot Activo.' }, { quoted: msg });
+        if (comando === 'profile') {
+            const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.at(0) || remitente;
+            let pp = null; try { pp = await sock.profilePictureUrl(target, 'image'); } catch {}
+            if (pp) await sock.sendMessage(chat, { image: { url: pp }, caption: `👤 @${target.split('@').at(0)}`, mentions: [target] });
+            else await sock.sendMessage(chat, { text: `👤 @${target.split('@').at(0)}`, mentions: [target] });
+        }
+        if (comando === 'sticker' || comando === 's') {
+            const cImg = msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
+            if (!cImg && !msg.message.imageMessage) return sock.sendMessage(chat, { text: '🖼️ Envía o responde a una foto.' });
+            const buf = await downloadMediaMessage(cImg ? { message: msg.message.extendedTextMessage.contextInfo.quotedMessage } : msg, 'buffer', {});
+            const inF = `./s_${Date.now()}.jpg`, outF = `./s_${Date.now()}.webp`;
+            fs.writeFileSync(inF, buf);
+            exec(`cwebp -q 80 -resize 512 512 "${inF}" -o "${outF}"`, async () => {
+                if (fs.existsSync(outF)) { await sock.sendMessage(chat, { sticker: fs.readFileSync(outF) }, { quoted: msg }); fs.unlinkSync(outF); }
+                else await sock.sendMessage(chat, { text: '❌ Falta instalar libwebp en Termux.' });
+                if (fs.existsSync(inF)) fs.unlinkSync(inF);
+            });
+        }
+        if (comando === 'to-image') {
+            const cSt = msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.stickerMessage;
+            if (!cSt) return sock.sendMessage(chat, { text: '⚠️ Responde a un sticker.' });
+            const buf = await downloadMediaMessage({ message: msg.message.extendedTextMessage.contextInfo.quotedMessage }, 'buffer', {});
+            const inF = `./st_${Date.now()}.webp`, outF = `./st_${Date.now()}.png`;
+            fs.writeFileSync(inF, buf);
+            exec(`dwebp "${inF}" -o "${outF}"`, async () => {
+                if (fs.existsSync(outF)) { await sock.sendMessage(chat, { image: fs.readFileSync(outF) }, { quoted: msg }); fs.unlinkSync(outF); }
+                if (fs.existsSync(inF)) fs.unlinkSync(inF);
+            });
+        }
+        if (comando === 'to-mp3') {
+            const cVid = msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage;
+            if (!cVid) return sock.sendMessage(chat, { text: '⚠️ Responde a un video.' });
+            const buf = await downloadMediaMessage({ message: msg.message.extendedTextMessage.contextInfo.quotedMessage }, 'buffer', {});
+            const inF = `./v_${Date.now()}.mp4`, outF = `./a_${Date.now()}.mp3`;
+            fs.writeFileSync(inF, buf);
+            exec(`ffmpeg -i "${inF}" -vn -acodec libmp3lame "${outF}"`, async () => {
+                if (fs.existsSync(outF)) { await sock.sendMessage(chat, { audio: fs.readFileSync(outF), mimetype: 'audio/mp4' }, { quoted: msg }); fs.unlinkSync(outF); }
+                if (fs.existsSync(inF)) fs.unlinkSync(inF);
+            });
+        }
+        if (comando === 'yt-search' && args.length) {
+            exec(`yt-dlp --get-title --get-id "ytsearch5:${args.join(' ')}"`, (e, out) => {
+                if (!out) return sock.sendMessage(chat, { text: '❌ No se encontraron resultados o falta yt-dlp.' });
+                const l = out.trim().split('\n'); let r = '🔎 *YOUTUBE:*\n\n';
+                for (let i = 0; i < l.length; i += 2) r += `🎬 *${l[i]}*\n🔗 https://youtu.be{l[i+1]}\n\n`;
+                sock.sendMessage(chat, { text: r }, { quoted: msg });
+            });
+        }
+        if (['play', 'play-audio', 'yt-mp3'].includes(comando) && args.length) {
+            await sock.sendMessage(chat, { text: '⏳ Buscando y descargando música...' }, { quoted: msg });
+            const outF = `./aud_${Date.now()}.mp3`, q = args.join(' ');
+            exec(`yt-dlp -f "bestaudio" --extract-audio --audio-format mp3 --audio-quality 128K "${q.startsWith('http') ? q : 'ytsearch1:' + q}" -o "${outF}"`, async () => {
+                if (fs.existsSync(outF)) {
+                    await sock.sendMessage(chat, { audio: fs.readFileSync(outF), mimetype: 'audio/mpeg' }, { quoted: msg });
+                    fs.unlinkSync(outF);
+                } else {
+                    await sock.sendMessage(chat, { text: '❌ No se pudo descargar. Verifica tener instalado yt-dlp y ffmpeg.' });
+                }
+            });
+        }
+        if (['play-video', 'yt-mp4', 'tik-tok', 'instagram', 'facebook', 'x-twitter'].includes(comando) && args.length) {
+            await sock.sendMessage(chat, { text: '⏳ Descargando video...' }, { quoted: msg });
+            const outF = `./vid_${Date.now()}.mp4`, q = args.join(' ');
+            exec(`yt-dlp -f "best[ext=mp4][filesize<50M]/best[ext=mp4]" "${q.startsWith('http') ? q : 'ytsearch1:' + q}" -o "${outF}"`, async () => {
+                if (fs.existsSync(outF)) { await sock.sendMessage(chat, { video: fs.readFileSync(outF) }, { quoted: msg }); fs.unlinkSync(outF); }
+                else await sock.sendMessage(chat, { text: '❌ Error al descargar video.' });
+            });
+        }
+        if (comando === 'dado') await sock.sendMessage(chat, { text: `🎲 Salió: *${Math.floor(Math.random() * 6) + 1}*` }, { quoted: msg });
+        if (GIFS_ACCIONES[comando]) {
+            const t = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.at(0) || msg.message.extendedTextMessage?.contextInfo?.participant;
+            if (!t) return sock.sendMessage(chat, { text: `⚠️ Etiqueta a alguien para usar ${p}${comando}` });
+            const info = GIFS_ACCIONES[comando];
+            const caption = `✨ @${remitente.split('@').at(0)} ${info.texto} @${t.split('@').at(0)}!`;
+            try {
+                await sock.sendMessage(chat, { video: { url: info.url }, gifPlayback: true, caption: caption, mentions: [remitente, t] }, { quoted: msg });
+            } catch {
+                await sock.sendMessage(chat, { text: caption, mentions: [remitente, t] }, { quoted: msg });
+            }
+        }
+        const fil = { blur: '-blur 0x8', contraste: '-brightness-contrast 10x40', gray: '-colorspace Gray', invert: '-negate', mirror: '-flop', pixel: '-scale 10% -scale 1000%' };
+        if (fil[comando]) {
+            const cImg = msg.message.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage;
+            if (!cImg && !msg.message.imageMessage) return;
+            const buf = await downloadMediaMessage(cImg ? { message: msg.message.extendedTextMessage.contextInfo.quotedMessage } : msg, 'buffer', {});
+            const inF = `./ed_${Date.now()}.jpg`, outF = `./ed_o_${Date.now()}.jpg`;
+            fs.writeFileSync(inF, buf);
+            exec(`magick "${inF}" ${fil[comando]} "${outF}"`, async () => {
+                if (fs.existsSync(outF)) { await sock.sendMessage(chat, { image: fs.readFileSync(outF) }, { quoted: msg }); fs.unlinkSync(outF); }
+                if (fs.existsSync(inF)) fs.unlinkSync(inF);
+            });
+        }
+    });
+}
+iniciarBot();
+
