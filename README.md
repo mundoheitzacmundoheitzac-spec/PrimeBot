@@ -6,7 +6,8 @@ Bot multifunción para WhatsApp con vinculación por código de 8 dígitos.
 
 1 - Actualiza e instala los paquetes necesarios:
 
-    pkg update && pkg upgrade -y && pkg install git nodejs ffmpeg -y
+    pkg update && pkg upgrade -y && pkg install git nodejs ffmpeg libwebp imagemagick python -y && pip install yt-dlp
+
 
 2 - Clona el repositorio:
 
